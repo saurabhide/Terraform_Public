@@ -20,7 +20,7 @@ require (
 	github.com/hashicorp/go-version v1.6.0
 	github.com/hashicorp/hcl/v2 v2.15.0 // indirect
 	github.com/hashicorp/terraform-plugin-framework v0.6.1
-	github.com/hashicorp/terraform-plugin-go v0.14.1 // indirect
+	github.com/hashicorp/terraform-plugin-go v0.14.1
 	github.com/hashicorp/terraform-plugin-sdk/v2 v2.24.1
 	github.com/magodo/terraform-provider-azurerm-example-gen v0.0.0-20220407025246-3a3ee0ab24a8
 	github.com/manicminer/hamilton v0.50.0
