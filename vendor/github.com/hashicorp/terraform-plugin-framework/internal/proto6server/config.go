@@ -1,4 +1,4 @@
-package tfsdk
+package proto6server
 
 import (
 	"context"
@@ -8,58 +8,21 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/internal/logging"
-	"github.com/hashicorp/terraform-plugin-framework/internal/reflect"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
-// Config represents a Terraform config.
-type Config struct {
-	Raw    tftypes.Value
-	Schema Schema
-}
-
-// Get populates the struct passed as `target` with the entire config.
-func (c Config) Get(ctx context.Context, target interface{}) diag.Diagnostics {
-	return reflect.Into(ctx, c.Schema.AttributeType(), c.Raw, target, reflect.Options{})
-}
-
-// GetAttribute retrieves the attribute found at `path` and populates the
-// `target` with the value.
-func (c Config) GetAttribute(ctx context.Context, path *tftypes.AttributePath, target interface{}) diag.Diagnostics {
-	ctx = logging.FrameworkWithAttributePath(ctx, path.String())
-
-	attrValue, diags := c.getAttributeValue(ctx, path)
-
-	if diags.HasError() {
-		return diags
-	}
-
-	if attrValue == nil {
-		diags.AddAttributeError(
-			path,
-			"Config Read Error",
-			"An unexpected error was encountered trying to read an attribute from the configuration. This is always an error in the provider. Please report the following to the provider developer:\n\n"+
-				"Missing attribute value, however no error was returned. Preventing the panic from this situation.",
-		)
-		return diags
-	}
-
-	valueAsDiags := ValueAs(ctx, attrValue, target)
-
-	// ValueAs does not have path information for its Diagnostics.
-	for idx, valueAsDiag := range valueAsDiags {
-		valueAsDiags[idx] = diag.WithPath(path, valueAsDiag)
-	}
-
-	diags.Append(valueAsDiags...)
-
-	return diags
-}
-
-// getAttributeValue retrieves the attribute found at `path` and returns it as an
-// attr.Value. Consumers should assert the type of the returned value with the
-// desired attr.Type.
-func (c Config) getAttributeValue(ctx context.Context, path *tftypes.AttributePath) (attr.Value, diag.Diagnostics) {
+// ConfigGetAttributeValue is a duplicate of tfsdk.Config.getAttributeValue,
+// except it calls a local duplicate to Config.terraformValueAtPath as well.
+// It is duplicated to prevent any oddities with trying to use
+// tfsdk.Config.GetAttribute, which has some potentially undesirable logic.
+// Refer to the tfsdk package for the large amount of testing done there.
+//
+// TODO: Clean up this abstraction back into an internal Config type method.
+// The extra Config parameter is a carry-over of creating the proto6server
+// package from the tfsdk package and not wanting to export the method.
+// Reference: https://github.com/hashicorp/terraform-plugin-framework/issues/215
+func ConfigGetAttributeValue(ctx context.Context, c tfsdk.Config, path *tftypes.AttributePath) (attr.Value, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	attrType, err := c.Schema.AttributeTypeAtPath(path)
@@ -78,7 +41,7 @@ func (c Config) getAttributeValue(ctx context.Context, path *tftypes.AttributePa
 		return nil, nil
 	}
 
-	tfValue, err := c.terraformValueAtPath(path)
+	tfValue, err := ConfigTerraformValueAtPath(c, path)
 
 	// Ignoring ErrInvalidStep will allow this method to return a null value of the type.
 	if err != nil && !errors.Is(err, tftypes.ErrInvalidStep) {
@@ -119,7 +82,14 @@ func (c Config) getAttributeValue(ctx context.Context, path *tftypes.AttributePa
 	return attrValue, diags
 }
 
-func (c Config) terraformValueAtPath(path *tftypes.AttributePath) (tftypes.Value, error) {
+// ConfigTerraformValueAtPath is a duplicate of
+// tfsdk.Config.terraformValueAtPath.
+//
+// TODO: Clean up this abstraction back into an internal Config type method.
+// The extra Config parameter is a carry-over of creating the proto6server
+// package from the tfsdk package and not wanting to export the method.
+// Reference: https://github.com/hashicorp/terraform-plugin-framework/issues/215
+func ConfigTerraformValueAtPath(c tfsdk.Config, path *tftypes.AttributePath) (tftypes.Value, error) {
 	rawValue, remaining, err := tftypes.WalkAttributePath(c.Raw, path)
 	if err != nil {
 		return tftypes.Value{}, fmt.Errorf("%v still remains in the path: %w", remaining, err)
