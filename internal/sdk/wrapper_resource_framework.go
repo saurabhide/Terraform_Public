@@ -205,27 +205,40 @@ func (r resourceWrapper) Delete(ctx context.Context, request tfsdk.DeleteResourc
 
 func (r resourceWrapper) ImportState(ctx context.Context, request tfsdk.ImportResourceStateRequest, response *tfsdk.ImportResourceStateResponse) {
 	rwi, ok := r.typedResource.(ResourceWithCustomImporter)
-	if !ok {
-		// TODO: should this be ResourceImportStateNotImplemented?
-		response.Diagnostics.AddError("doesn't support import", "this resource doesn't support import")
-		return
+	if ok {
+		f := rwi.CustomImporter()
+		resourceData := NewFrameworkResourceData(ctx, &response.State)
+		resourceData.WithExistingID(request.ID)
+		err := f(ctx, ResourceMetaData{
+			Client:                   r.client,
+			Logger:                   NullLogger{},
+			ResourceData:             resourceData,
+			ResourceDiff:             nil,
+			serializationDebugLogger: &DiagnosticsLogger{},
+		})
+		if err != nil {
+			response.Diagnostics.AddError("performing import", err.Error())
+			return
+		}
+
+		response.State = *resourceData.state
+	} else {
+		f := r.typedResource.Read()
+		resourceData := NewFrameworkResourceData(ctx, &response.State)
+		resourceData.WithExistingID(request.ID)
+		err := f.Func(ctx, ResourceMetaData{
+			Client:                   r.client,
+			Logger:                   NullLogger{},
+			ResourceData:             resourceData,
+			ResourceDiff:             nil,
+			serializationDebugLogger: &DiagnosticsLogger{},
+		})
+		if err != nil {
+			response.Diagnostics.AddError("performing import", err.Error())
+			return
+		}
+
+		response.State = *resourceData.state
 	}
 
-	f := rwi.CustomImporter()
-
-	resourceData := NewFrameworkResourceData(ctx, &response.State)
-	resourceData.WithExistingID(request.ID)
-	err := f(ctx, ResourceMetaData{
-		Client:                   r.client,
-		Logger:                   NullLogger{},
-		ResourceData:             resourceData,
-		ResourceDiff:             nil,
-		serializationDebugLogger: nil,
-	})
-	if err != nil {
-		response.Diagnostics.AddError("performing delete", err.Error())
-		return
-	}
-
-	response.State = *resourceData.state
 }
