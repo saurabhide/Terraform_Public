@@ -5,9 +5,9 @@ package sdk
 
 import (
 	"context"
-
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
 )
 
@@ -66,6 +66,12 @@ func (r resourceBuilder) GetSchema(ctx context.Context) (tfsdk.Schema, diag.Diag
 		attributes[k] = *attr
 	}
 
+	// Add implicit 'id' attribute
+	attributes["id"] = tfsdk.Attribute{
+		Type:     types.StringType,
+		Computed: true,
+	}
+
 	version := 0
 	if v, ok := r.typedResource.(ResourceWithStateMigration); ok {
 		// TODO support state migrations
@@ -94,14 +100,26 @@ func (r resourceWrapper) Create(ctx context.Context, request tfsdk.CreateResourc
 		Logger:                   NullLogger{},
 		ResourceData:             resourceData,
 		ResourceDiff:             nil,
-		serializationDebugLogger: nil,
+		serializationDebugLogger: &DiagnosticsLogger{},
 	})
 	if err != nil {
 		response.Diagnostics.AddError("performing create", err.Error())
 		return
 	}
 
-	response.State = *resourceData.state
+	readReq := tfsdk.ReadResourceRequest{
+		State:        *resourceData.state,
+		ProviderMeta: request.ProviderMeta,
+	}
+
+	readResp := &tfsdk.ReadResourceResponse{
+		State:       response.State,
+		Diagnostics: response.Diagnostics,
+	}
+
+	r.Read(ctx, readReq, readResp)
+
+	response.State = readResp.State
 }
 
 func (r resourceWrapper) Read(ctx context.Context, request tfsdk.ReadResourceRequest, response *tfsdk.ReadResourceResponse) {
@@ -114,7 +132,7 @@ func (r resourceWrapper) Read(ctx context.Context, request tfsdk.ReadResourceReq
 		Logger:                   NullLogger{},
 		ResourceData:             resourceData,
 		ResourceDiff:             nil,
-		serializationDebugLogger: nil,
+		serializationDebugLogger: &DiagnosticsLogger{},
 	})
 	if err != nil {
 		response.Diagnostics.AddError("performing read", err.Error())
@@ -142,14 +160,26 @@ func (r resourceWrapper) Update(ctx context.Context, request tfsdk.UpdateResourc
 		Logger:                   NullLogger{},
 		ResourceData:             resourceData,
 		ResourceDiff:             nil,
-		serializationDebugLogger: nil,
+		serializationDebugLogger: &DiagnosticsLogger{},
 	})
 	if err != nil {
 		response.Diagnostics.AddError("performing update", err.Error())
 		return
 	}
 
-	response.State = *resourceData.state
+	readReq := tfsdk.ReadResourceRequest{
+		State:        *resourceData.state,
+		ProviderMeta: request.ProviderMeta,
+	}
+
+	readResp := &tfsdk.ReadResourceResponse{
+		State:       response.State,
+		Diagnostics: response.Diagnostics,
+	}
+
+	r.Read(ctx, readReq, readResp)
+
+	response.State = readResp.State
 }
 
 func (r resourceWrapper) Delete(ctx context.Context, request tfsdk.DeleteResourceRequest, response *tfsdk.DeleteResourceResponse) {

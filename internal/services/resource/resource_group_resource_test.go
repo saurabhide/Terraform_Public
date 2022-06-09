@@ -168,6 +168,11 @@ provider "azurerm" {
 resource "azurerm_resource_group" "test" {
   name     = "acctestRG-%d"
   location = "%s"
+
+  tags = {
+    environment = "Production"
+    cost_center = "MSFT"
+  }
 }
 `, data.RandomInteger, data.Locations.Primary)
 }

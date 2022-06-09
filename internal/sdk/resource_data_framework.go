@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
@@ -29,14 +30,17 @@ type FrameworkResourceData struct {
 func (f *FrameworkResourceData) GetOk(key string) (interface{}, bool) {
 	var out interface{}
 	path := flatMapToAttributePath(key)
-	f.state.GetAttribute(f.ctx, path, out)
+	f.config.GetAttribute(f.ctx, path, &out)
 	return out, out != nil
 }
 
 func (f *FrameworkResourceData) GetOkExists(key string) (interface{}, bool) {
 	var out interface{}
-	path := flatMapToAttributePath(key)
-	f.state.GetAttribute(f.ctx, path, out)
+	out = f.GetFromConfig(key)
+	if out == nil {
+		// TODO - This does not account for Computed values as PluginSDK does(?)
+		out = f.Get(key)
+	}
 	return out, out != nil
 }
 
@@ -97,10 +101,35 @@ func (f *FrameworkResourceData) WithPlan(plan tfsdk.Plan) {
 }
 
 func (f *FrameworkResourceData) Get(key string) interface{} {
-	var out interface{}
 	path := flatMapToAttributePath(key)
-	f.state.GetAttribute(f.ctx, path, out)
-	return out
+	attrType, _ := f.state.Schema.AttributeTypeAtPath(path)
+	switch attrType {
+	case types.StringType:
+		var out string
+		f.state.GetAttribute(f.ctx, path, &out)
+		if out != "" {
+			return out
+		}
+	case types.MapType{}:
+		out := make(map[string]interface{})
+		f.state.GetAttribute(f.ctx, path, &out)
+		if len(out) != 0 {
+			return out
+		}
+	default:
+		if _, ok := attrType.(types.MapType); ok {
+			switch attrType.(types.MapType).ElemType {
+			case types.StringType:
+				out := make(map[string]string)
+				f.config.GetAttribute(f.ctx, path, &out)
+				if len(out) != 0 {
+					return out
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func (f *FrameworkResourceData) GetChange(key string) (original interface{}, updated interface{}) {
@@ -127,10 +156,62 @@ func (f *FrameworkResourceData) GetChange(key string) (original interface{}, upd
 }
 
 func (f *FrameworkResourceData) GetFromConfig(key string) interface{} {
-	var out interface{}
 	path := flatMapToAttributePath(key)
-	f.config.GetAttribute(f.ctx, path, out)
-	return out
+	attrType, _ := f.config.Schema.AttributeTypeAtPath(path)
+	switch attrType {
+	case types.StringType:
+		var out string
+		f.config.GetAttribute(f.ctx, path, &out)
+		if out != "" {
+			return out
+		}
+	case types.BoolType:
+		var out bool
+		f.config.GetAttribute(f.ctx, path, &out)
+		return out
+
+	case types.Float64Type:
+		var out float64
+		f.config.GetAttribute(f.ctx, path, &out)
+		if out != 0 {
+			return out
+		}
+	case types.Int64Type:
+		var out int64
+		f.config.GetAttribute(f.ctx, path, &out)
+		if out != 0 {
+			return out
+		}
+	case types.NumberType:
+		// TODO?
+
+	default:
+		// Deal with non-primitives here
+		if _, ok := attrType.(types.MapType); ok {
+			switch attrType.(types.MapType).ElemType {
+			case types.StringType:
+				out := make(map[string]string)
+				f.config.GetAttribute(f.ctx, path, &out)
+				if len(out) != 0 {
+					return out
+				}
+			case types.BoolType:
+				// TODO
+			case types.Float64Type:
+				// TODO
+			case types.Int64Type:
+				// TODO
+			case types.NumberType:
+				// TODO?
+			}
+
+		}
+		if _, ok := attrType.(types.ListType); ok {
+		}
+		if _, ok := attrType.(types.SetType); ok {
+		}
+	}
+	return nil
 }
 
 func (f *FrameworkResourceData) GetFromState(key string) interface{} {
