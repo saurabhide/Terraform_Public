@@ -57,7 +57,7 @@ func (p *Provider) GetSchema(ctx context.Context) (tfsdk.Schema, diag.Diagnostic
 			},
 			"environment": {
 				Type:     types.StringType,
-				Required: true,
+				Optional: true,
 				// TODO: missing the ability to specify a default value
 				// TODO: missing the ability to source values from an environment variable
 				Description: "The Cloud Environment which should be used. Possible values are public, usgovernment, and china. Defaults to public.",
@@ -78,7 +78,7 @@ func (p *Provider) GetSchema(ctx context.Context) (tfsdk.Schema, diag.Diagnostic
 
 			"metadata_host": {
 				Type:     types.StringType,
-				Required: true,
+				Optional: true,
 				// TODO: missing the ability to specify a default value
 				// TODO: missing the ability to source values from an environment variable
 				Description: "The Hostname which should be used for the Azure Metadata Service.",
@@ -172,7 +172,7 @@ func (p *Provider) GetSchema(ctx context.Context) (tfsdk.Schema, diag.Diagnostic
 				Description: "Should the AzureRM Provider use AzureAD to access the Storage Data Plane API's?",
 			},
 		},
-		Blocks:              nil,
+		//Blocks:              schemaFeaturesBlocks(),
 		Version:             1,
 		DeprecationMessage:  "",
 		Description:         "",

@@ -3,11 +3,18 @@ package types
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/internal/reflect"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
+)
+
+var (
+	_ attr.Type  = MapType{}
+	_ attr.Value = &Map{}
 )
 
 // MapType is an AttributeType representing a map of values. All values must
@@ -161,6 +168,9 @@ func (m Map) Type(ctx context.Context) attr.Type {
 // ToTerraformValue returns the data contained in the AttributeValue as a
 // tftypes.Value.
 func (m Map) ToTerraformValue(ctx context.Context) (tftypes.Value, error) {
+	if m.ElemType == nil {
+		return tftypes.Value{}, fmt.Errorf("cannot convert Map to tftypes.Value if ElemType field is not set")
+	}
 	mapType := tftypes.Map{ElementType: m.ElemType.TerraformType(ctx)}
 	if m.Unknown {
 		return tftypes.NewValue(mapType, tftypes.UnknownValue), nil
@@ -211,4 +221,42 @@ func (m Map) Equal(o attr.Value) bool {
 		}
 	}
 	return true
+}
+
+func (m Map) IsNull() bool {
+	return m.Null
+}
+
+func (m Map) IsUnknown() bool {
+	return m.Unknown
+}
+
+func (m Map) String() string {
+	if m.Unknown {
+		return attr.UnknownValueString
+	}
+
+	if m.Null {
+		return attr.NullValueString
+	}
+
+	// We want the output to be consistent, so we sort the output by key
+	keys := make([]string, 0, len(m.Elems))
+	for k := range m.Elems {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var res strings.Builder
+
+	res.WriteString("{")
+	for i, k := range keys {
+		if i != 0 {
+			res.WriteString(",")
+		}
+		res.WriteString(fmt.Sprintf("%q:%s", k, m.Elems[k].String()))
+	}
+	res.WriteString("}")
+
+	return res.String()
 }

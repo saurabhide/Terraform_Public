@@ -2,9 +2,14 @@ package types
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
+)
+
+var (
+	_ attr.Value = String{}
 )
 
 func stringValueFromTerraform(ctx context.Context, in tftypes.Value) (attr.Value, error) {
@@ -21,8 +26,6 @@ func stringValueFromTerraform(ctx context.Context, in tftypes.Value) (attr.Value
 	}
 	return String{Value: s}, nil
 }
-
-var _ attr.Value = String{}
 
 // String represents a UTF-8 string value.
 type String struct {
@@ -71,4 +74,24 @@ func (s String) Equal(other attr.Value) bool {
 		return false
 	}
 	return s.Value == o.Value
+}
+
+func (s String) IsNull() bool {
+	return s.Null
+}
+
+func (s String) IsUnknown() bool {
+	return s.Unknown
+}
+
+func (s String) String() string {
+	if s.Unknown {
+		return attr.UnknownValueString
+	}
+
+	if s.Null {
+		return attr.NullValueString
+	}
+
+	return fmt.Sprintf("%q", s.Value)
 }

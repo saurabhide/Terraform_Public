@@ -12,6 +12,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
+var (
+	_ attr.Type  = ObjectType{}
+	_ attr.Value = &Object{}
+)
+
 // ObjectType is an AttributeType representing an object.
 type ObjectType struct {
 	AttrTypes map[string]attr.Type
@@ -203,6 +208,9 @@ func (o Object) Type(_ context.Context) attr.Type {
 // ToTerraformValue returns the data contained in the AttributeValue as
 // a tftypes.Value.
 func (o Object) ToTerraformValue(ctx context.Context) (tftypes.Value, error) {
+	if o.AttrTypes == nil {
+		return tftypes.Value{}, fmt.Errorf("cannot convert Object to tftypes.Value if AttrTypes field is not set")
+	}
 	attrTypes := map[string]tftypes.Type{}
 	for attr, typ := range o.AttrTypes {
 		attrTypes[attr] = typ.TerraformType(ctx)
@@ -268,4 +276,42 @@ func (o Object) Equal(c attr.Value) bool {
 	}
 
 	return true
+}
+
+func (o Object) IsNull() bool {
+	return o.Null
+}
+
+func (o Object) IsUnknown() bool {
+	return o.Unknown
+}
+
+func (o Object) String() string {
+	if o.Unknown {
+		return attr.UnknownValueString
+	}
+
+	if o.Null {
+		return attr.NullValueString
+	}
+
+	// We want the output to be consistent, so we sort the output by key
+	keys := make([]string, 0, len(o.Attrs))
+	for k := range o.Attrs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var res strings.Builder
+
+	res.WriteString("{")
+	for i, k := range keys {
+		if i != 0 {
+			res.WriteString(",")
+		}
+		res.WriteString(fmt.Sprintf(`"%s":%s`, k, o.Attrs[k].String()))
+	}
+	res.WriteString("}")
+
+	return res.String()
 }

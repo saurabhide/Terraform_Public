@@ -76,16 +76,14 @@ func frameworkAttributeFromPluginSdkType(input *schema.Schema) (*tfsdk.Attribute
 		for k, v := range resource.Schema {
 			nestedAttr, err := frameworkAttributeFromPluginSdkType(v)
 			if err != nil {
-				return nil, fmt.Errorf("converting list nested schema item %q to a Framework type: %+v", err)
+				return nil, fmt.Errorf("converting list nested schema item %q to a Framework type: %+v", "TODO", err)
 			}
 
 			nestedAttributes[k] = *nestedAttr
 		}
 
 		attribute := tfsdk.Attribute{
-			Attributes: tfsdk.ListNestedAttributes(nestedAttributes, tfsdk.ListNestedAttributesOptions{
-				// this is just boilerplate today
-			}),
+			Attributes: tfsdk.ListNestedAttributes(nestedAttributes),
 			// TODO: PlanModifiers to do Min/Max Items
 		}
 		if input.MaxItems == 1 {
@@ -125,16 +123,14 @@ func frameworkAttributeFromPluginSdkType(input *schema.Schema) (*tfsdk.Attribute
 		for k, v := range resource.Schema {
 			nestedAttr, err := frameworkAttributeFromPluginSdkType(v)
 			if err != nil {
-				return nil, fmt.Errorf("converting list nested schema item %q to a Framework type: %+v", err)
+				return nil, fmt.Errorf("converting list nested schema item %q to a Framework type: %+v", "TODO", err)
 			}
 
 			nestedAttributes[k] = *nestedAttr
 		}
 
 		attribute := tfsdk.Attribute{
-			Attributes: tfsdk.SetNestedAttributes(nestedAttributes, tfsdk.SetNestedAttributesOptions{
-				// this is just boilerplate today
-			}),
+			Attributes: tfsdk.SetNestedAttributes(nestedAttributes),
 			// TODO: PlanModifiers to do Min/Max Items
 		}
 		if input.MaxItems == 1 {

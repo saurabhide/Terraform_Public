@@ -1,5 +1,4 @@
 //go:build framework
-// +build framework
 
 package sdk
 
@@ -121,7 +120,7 @@ func (f *FrameworkResourceData) Get(key string) interface{} {
 			switch attrType.(types.MapType).ElemType {
 			case types.StringType:
 				out := make(map[string]string)
-				f.config.GetAttribute(f.ctx, path, &out)
+				f.state.GetAttribute(f.ctx, path, &out)
 				if len(out) != 0 {
 					return out
 				}
@@ -157,6 +156,9 @@ func (f *FrameworkResourceData) GetChange(key string) (original interface{}, upd
 
 func (f *FrameworkResourceData) GetFromConfig(key string) interface{} {
 	path := flatMapToAttributePath(key)
+	if f.config == nil {
+		return nil
+	}
 	attrType, _ := f.config.Schema.AttributeTypeAtPath(path)
 	switch attrType {
 	case types.StringType:
@@ -196,19 +198,21 @@ func (f *FrameworkResourceData) GetFromConfig(key string) interface{} {
 					return out
 				}
 			case types.BoolType:
-				// TODO
+				// TODO?
 			case types.Float64Type:
-				// TODO
+				// TODO?
 			case types.Int64Type:
-				// TODO
+				// TODO?
 			case types.NumberType:
 				// TODO?
 			}
 
 		}
 		if _, ok := attrType.(types.ListType); ok {
+			// TODO
 		}
 		if _, ok := attrType.(types.SetType); ok {
+			// TODO
 		}
 	}
 	return nil
@@ -246,7 +250,7 @@ func (f *FrameworkResourceData) Set(key string, value interface{}) error {
 			s = append(s, fmt.Sprintf("%s: %s", e.Summary(), e.Detail()))
 		}
 
-		return fmt.Errorf("setting attribute %q:\n\n%s", strings.Join(s, "\n\n"))
+		return fmt.Errorf("setting attribute %q:\n\n", strings.Join(s, "\n\n"))
 	}
 	return nil
 }

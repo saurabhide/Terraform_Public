@@ -3,6 +3,7 @@ package types
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -162,6 +163,9 @@ func (l List) Type(ctx context.Context) attr.Type {
 // ToTerraformValue returns the data contained in the AttributeValue as
 // a tftypes.Value.
 func (l List) ToTerraformValue(ctx context.Context) (tftypes.Value, error) {
+	if l.ElemType == nil {
+		return tftypes.Value{}, fmt.Errorf("cannot convert List to tftypes.Value if ElemType field is not set")
+	}
 	listType := tftypes.List{ElementType: l.ElemType.TerraformType(ctx)}
 	if l.Unknown {
 		return tftypes.NewValue(listType, tftypes.UnknownValue), nil
@@ -212,4 +216,35 @@ func (l List) Equal(o attr.Value) bool {
 		}
 	}
 	return true
+}
+
+func (l List) IsNull() bool {
+	return l.Null
+}
+
+func (l List) IsUnknown() bool {
+	return l.Unknown
+}
+
+func (l List) String() string {
+	if l.Unknown {
+		return attr.UnknownValueString
+	}
+
+	if l.Null {
+		return attr.NullValueString
+	}
+
+	var res strings.Builder
+
+	res.WriteString("[")
+	for i, e := range l.Elems {
+		if i != 0 {
+			res.WriteString(",")
+		}
+		res.WriteString(e.String())
+	}
+	res.WriteString("]")
+
+	return res.String()
 }

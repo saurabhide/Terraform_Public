@@ -160,8 +160,6 @@ func (t ResourceGroupResource) createNetworkOutsideTerraform(name string) func(c
 func (t ResourceGroupResource) basicConfig(data acceptance.TestData) string {
 	return fmt.Sprintf(`
 provider "azurerm" {
-  environment = "public"
-  metadata_host = ""
   features = {}
 }
 
@@ -170,8 +168,8 @@ resource "azurerm_resource_group" "test" {
   location = "%s"
 
   tags = {
-    environment = "Production"
-    cost_center = "MSFT"
+  environment = "Production"
+  cost_center = "MSFT"
   }
 }
 `, data.RandomInteger, data.Locations.Primary)

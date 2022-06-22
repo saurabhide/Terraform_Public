@@ -481,10 +481,32 @@ func schemaFeaturesAttributes() tfsdk.Attribute {
 						Type:     types.BoolType,
 						Optional: true,
 					},
-				}, tfsdk.MapNestedAttributesOptions{}),
+				}),
 			},
-		}, tfsdk.MapNestedAttributesOptions{}),
+		}),
 		Required:    true,
 		Description: "The features map allows control of Azure features and behaviours within the provider.",
+	}
+}
+
+func schemaFeaturesBlocks() map[string]tfsdk.Block {
+	return map[string]tfsdk.Block{
+		"features": {
+			Attributes: nil,
+			Blocks: map[string]tfsdk.Block{
+				"resource_group": {
+					MaxItems:    1,
+					NestingMode: tfsdk.BlockNestingModeList,
+					Attributes: map[string]tfsdk.Attribute{
+						"prevent_deletion_if_contains_resources": {
+							Type:     types.BoolType,
+							Optional: true,
+						},
+					},
+				},
+			},
+			MaxItems:    1,
+			NestingMode: tfsdk.BlockNestingModeList,
+		},
 	}
 }
