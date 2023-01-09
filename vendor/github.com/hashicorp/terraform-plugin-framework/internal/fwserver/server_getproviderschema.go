@@ -4,7 +4,9 @@ import (
 	"context"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
-	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
+	"github.com/hashicorp/terraform-plugin-framework/internal/fwschema"
+	"github.com/hashicorp/terraform-plugin-framework/internal/logging"
+	"github.com/hashicorp/terraform-plugin-framework/provider"
 )
 
 // GetProviderSchemaRequest is the framework server request for the
@@ -14,15 +16,29 @@ type GetProviderSchemaRequest struct{}
 // GetProviderSchemaResponse is the framework server response for the
 // GetProviderSchema RPC.
 type GetProviderSchemaResponse struct {
-	Provider          *tfsdk.Schema
-	ProviderMeta      *tfsdk.Schema
-	ResourceSchemas   map[string]*tfsdk.Schema
-	DataSourceSchemas map[string]*tfsdk.Schema
-	Diagnostics       diag.Diagnostics
+	ServerCapabilities *ServerCapabilities
+	Provider           fwschema.Schema
+	ProviderMeta       fwschema.Schema
+	ResourceSchemas    map[string]fwschema.Schema
+	DataSourceSchemas  map[string]fwschema.Schema
+	Diagnostics        diag.Diagnostics
 }
 
 // GetProviderSchema implements the framework server GetProviderSchema RPC.
 func (s *Server) GetProviderSchema(ctx context.Context, req *GetProviderSchemaRequest, resp *GetProviderSchemaResponse) {
+	resp.ServerCapabilities = &ServerCapabilities{
+		PlanDestroy: true,
+	}
+
+	metadataReq := provider.MetadataRequest{}
+	metadataResp := provider.MetadataResponse{}
+
+	logging.FrameworkDebug(ctx, "Calling provider defined Provider Metadata")
+	s.Provider.Metadata(ctx, metadataReq, &metadataResp)
+	logging.FrameworkDebug(ctx, "Called provider defined Provider Metadata")
+
+	s.providerTypeName = metadataResp.TypeName
+
 	providerSchema, diags := s.ProviderSchema(ctx)
 
 	resp.Diagnostics.Append(diags...)

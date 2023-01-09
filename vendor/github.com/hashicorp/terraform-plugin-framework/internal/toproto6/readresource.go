@@ -3,8 +3,9 @@ package toproto6
 import (
 	"context"
 
-	"github.com/hashicorp/terraform-plugin-framework/internal/fwserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
+
+	"github.com/hashicorp/terraform-plugin-framework/internal/fwserver"
 )
 
 // ReadResourceResponse returns the *tfprotov6.ReadResourceResponse
@@ -15,14 +16,18 @@ func ReadResourceResponse(ctx context.Context, fw *fwserver.ReadResourceResponse
 	}
 
 	proto6 := &tfprotov6.ReadResourceResponse{
-		Diagnostics: Diagnostics(fw.Diagnostics),
-		Private:     fw.Private,
+		Diagnostics: Diagnostics(ctx, fw.Diagnostics),
 	}
 
 	newState, diags := State(ctx, fw.NewState)
 
-	proto6.Diagnostics = append(proto6.Diagnostics, Diagnostics(diags)...)
+	proto6.Diagnostics = append(proto6.Diagnostics, Diagnostics(ctx, diags)...)
 	proto6.NewState = newState
+
+	newPrivate, diags := fw.Private.Bytes(ctx)
+
+	proto6.Diagnostics = append(proto6.Diagnostics, Diagnostics(ctx, diags)...)
+	proto6.Private = newPrivate
 
 	return proto6
 }

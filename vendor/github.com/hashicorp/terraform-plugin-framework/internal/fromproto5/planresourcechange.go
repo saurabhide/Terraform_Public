@@ -3,15 +3,18 @@ package fromproto5
 import (
 	"context"
 
-	"github.com/hashicorp/terraform-plugin-framework/diag"
-	"github.com/hashicorp/terraform-plugin-framework/internal/fwserver"
-	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov5"
+
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/internal/fwschema"
+	"github.com/hashicorp/terraform-plugin-framework/internal/fwserver"
+	"github.com/hashicorp/terraform-plugin-framework/internal/privatestate"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
 )
 
 // PlanResourceChangeRequest returns the *fwserver.PlanResourceChangeRequest
 // equivalent of a *tfprotov5.PlanResourceChangeRequest.
-func PlanResourceChangeRequest(ctx context.Context, proto5 *tfprotov5.PlanResourceChangeRequest, resourceType tfsdk.ResourceType, resourceSchema *tfsdk.Schema, providerMetaSchema *tfsdk.Schema) (*fwserver.PlanResourceChangeRequest, diag.Diagnostics) {
+func PlanResourceChangeRequest(ctx context.Context, proto5 *tfprotov5.PlanResourceChangeRequest, resource resource.Resource, resourceSchema fwschema.Schema, providerMetaSchema fwschema.Schema) (*fwserver.PlanResourceChangeRequest, diag.Diagnostics) {
 	if proto5 == nil {
 		return nil, nil
 	}
@@ -33,9 +36,8 @@ func PlanResourceChangeRequest(ctx context.Context, proto5 *tfprotov5.PlanResour
 	}
 
 	fw := &fwserver.PlanResourceChangeRequest{
-		PriorPrivate:   proto5.PriorPrivate,
-		ResourceSchema: *resourceSchema,
-		ResourceType:   resourceType,
+		ResourceSchema: resourceSchema,
+		Resource:       resource,
 	}
 
 	config, configDiags := Config(ctx, proto5.Config, resourceSchema)
@@ -61,6 +63,12 @@ func PlanResourceChangeRequest(ctx context.Context, proto5 *tfprotov5.PlanResour
 	diags.Append(providerMetaDiags...)
 
 	fw.ProviderMeta = providerMeta
+
+	privateData, privateDataDiags := privatestate.NewData(ctx, proto5.PriorPrivate)
+
+	diags.Append(privateDataDiags...)
+
+	fw.PriorPrivate = privateData
 
 	return fw, diags
 }

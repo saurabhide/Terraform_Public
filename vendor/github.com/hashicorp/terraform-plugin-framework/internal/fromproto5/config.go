@@ -4,13 +4,14 @@ import (
 	"context"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/internal/fwschema"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov5"
 )
 
 // Config returns the *tfsdk.Config for a *tfprotov5.DynamicValue and
-// *tfsdk.Schema.
-func Config(ctx context.Context, proto5DynamicValue *tfprotov5.DynamicValue, schema *tfsdk.Schema) (*tfsdk.Config, diag.Diagnostics) {
+// fwschema.Schema.
+func Config(ctx context.Context, proto5DynamicValue *tfprotov5.DynamicValue, schema fwschema.Schema) (*tfsdk.Config, diag.Diagnostics) {
 	if proto5DynamicValue == nil {
 		return nil, nil
 	}
@@ -31,7 +32,7 @@ func Config(ctx context.Context, proto5DynamicValue *tfprotov5.DynamicValue, sch
 		return nil, diags
 	}
 
-	proto5Value, err := proto5DynamicValue.Unmarshal(schema.TerraformType(ctx))
+	proto5Value, err := proto5DynamicValue.Unmarshal(schema.Type().TerraformType(ctx))
 
 	if err != nil {
 		diags.AddError(
@@ -46,7 +47,7 @@ func Config(ctx context.Context, proto5DynamicValue *tfprotov5.DynamicValue, sch
 
 	fw := &tfsdk.Config{
 		Raw:    proto5Value,
-		Schema: *schema,
+		Schema: schema,
 	}
 
 	return fw, nil

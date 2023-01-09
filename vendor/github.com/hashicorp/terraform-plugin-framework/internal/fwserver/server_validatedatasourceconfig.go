@@ -3,6 +3,7 @@ package fwserver
 import (
 	"context"
 
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/internal/logging"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
@@ -11,8 +12,8 @@ import (
 // ValidateDataSourceConfigRequest is the framework server request for the
 // ValidateDataSourceConfig RPC.
 type ValidateDataSourceConfigRequest struct {
-	Config         *tfsdk.Config
-	DataSourceType tfsdk.DataSourceType
+	Config     *tfsdk.Config
+	DataSource datasource.DataSource
 }
 
 // ValidateDataSourceConfigResponse is the framework server response for the
@@ -27,40 +28,48 @@ func (s *Server) ValidateDataSourceConfig(ctx context.Context, req *ValidateData
 		return
 	}
 
-	// Always instantiate new DataSource instances.
-	logging.FrameworkDebug(ctx, "Calling provider defined DataSourceType NewDataSource")
-	dataSource, diags := req.DataSourceType.NewDataSource(ctx, s.Provider)
-	logging.FrameworkDebug(ctx, "Called provider defined DataSourceType NewDataSource")
+	if _, ok := req.DataSource.(datasource.DataSourceWithConfigure); ok {
+		logging.FrameworkTrace(ctx, "DataSource implements DataSourceWithConfigure")
 
-	resp.Diagnostics.Append(diags...)
+		configureReq := datasource.ConfigureRequest{
+			ProviderData: s.DataSourceConfigureData,
+		}
+		configureResp := datasource.ConfigureResponse{}
 
-	if resp.Diagnostics.HasError() {
-		return
+		logging.FrameworkDebug(ctx, "Calling provider defined DataSource Configure")
+		req.DataSource.(datasource.DataSourceWithConfigure).Configure(ctx, configureReq, &configureResp)
+		logging.FrameworkDebug(ctx, "Called provider defined DataSource Configure")
+
+		resp.Diagnostics.Append(configureResp.Diagnostics...)
+
+		if resp.Diagnostics.HasError() {
+			return
+		}
 	}
 
-	vdscReq := tfsdk.ValidateDataSourceConfigRequest{
+	vdscReq := datasource.ValidateConfigRequest{
 		Config: *req.Config,
 	}
 
-	if dataSource, ok := dataSource.(tfsdk.DataSourceWithConfigValidators); ok {
+	if dataSource, ok := req.DataSource.(datasource.DataSourceWithConfigValidators); ok {
 		logging.FrameworkTrace(ctx, "DataSource implements DataSourceWithConfigValidators")
 
 		for _, configValidator := range dataSource.ConfigValidators(ctx) {
-			vdscResp := &tfsdk.ValidateDataSourceConfigResponse{
+			vdscResp := &datasource.ValidateConfigResponse{
 				Diagnostics: resp.Diagnostics,
 			}
 
 			logging.FrameworkDebug(
 				ctx,
-				"Calling provider defined DataSourceConfigValidator",
+				"Calling provider defined ConfigValidator",
 				map[string]interface{}{
 					logging.KeyDescription: configValidator.Description(ctx),
 				},
 			)
-			configValidator.Validate(ctx, vdscReq, vdscResp)
+			configValidator.ValidateDataSource(ctx, vdscReq, vdscResp)
 			logging.FrameworkDebug(
 				ctx,
-				"Called provider defined DataSourceConfigValidator",
+				"Called provider defined ConfigValidator",
 				map[string]interface{}{
 					logging.KeyDescription: configValidator.Description(ctx),
 				},
@@ -70,10 +79,10 @@ func (s *Server) ValidateDataSourceConfig(ctx context.Context, req *ValidateData
 		}
 	}
 
-	if dataSource, ok := dataSource.(tfsdk.DataSourceWithValidateConfig); ok {
+	if dataSource, ok := req.DataSource.(datasource.DataSourceWithValidateConfig); ok {
 		logging.FrameworkTrace(ctx, "DataSource implements DataSourceWithValidateConfig")
 
-		vdscResp := &tfsdk.ValidateDataSourceConfigResponse{
+		vdscResp := &datasource.ValidateConfigResponse{
 			Diagnostics: resp.Diagnostics,
 		}
 

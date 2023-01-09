@@ -3,15 +3,18 @@ package fromproto5
 import (
 	"context"
 
-	"github.com/hashicorp/terraform-plugin-framework/diag"
-	"github.com/hashicorp/terraform-plugin-framework/internal/fwserver"
-	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov5"
+
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/internal/fwschema"
+	"github.com/hashicorp/terraform-plugin-framework/internal/fwserver"
+	"github.com/hashicorp/terraform-plugin-framework/internal/privatestate"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
 )
 
 // ReadResourceRequest returns the *fwserver.ReadResourceRequest
 // equivalent of a *tfprotov5.ReadResourceRequest.
-func ReadResourceRequest(ctx context.Context, proto5 *tfprotov5.ReadResourceRequest, resourceType tfsdk.ResourceType, resourceSchema *tfsdk.Schema, providerMetaSchema *tfsdk.Schema) (*fwserver.ReadResourceRequest, diag.Diagnostics) {
+func ReadResourceRequest(ctx context.Context, proto5 *tfprotov5.ReadResourceRequest, resource resource.Resource, resourceSchema fwschema.Schema, providerMetaSchema fwschema.Schema) (*fwserver.ReadResourceRequest, diag.Diagnostics) {
 	if proto5 == nil {
 		return nil, nil
 	}
@@ -19,8 +22,7 @@ func ReadResourceRequest(ctx context.Context, proto5 *tfprotov5.ReadResourceRequ
 	var diags diag.Diagnostics
 
 	fw := &fwserver.ReadResourceRequest{
-		Private:      proto5.Private,
-		ResourceType: resourceType,
+		Resource: resource,
 	}
 
 	currentState, currentStateDiags := State(ctx, proto5.CurrentState, resourceSchema)
@@ -34,6 +36,12 @@ func ReadResourceRequest(ctx context.Context, proto5 *tfprotov5.ReadResourceRequ
 	diags.Append(providerMetaDiags...)
 
 	fw.ProviderMeta = providerMeta
+
+	privateData, privateDataDiags := privatestate.NewData(ctx, proto5.Private)
+
+	diags.Append(privateDataDiags...)
+
+	fw.Private = privateData
 
 	return fw, diags
 }

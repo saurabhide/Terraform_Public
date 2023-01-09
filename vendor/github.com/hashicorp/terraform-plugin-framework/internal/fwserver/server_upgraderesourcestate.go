@@ -4,10 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/hashicorp/terraform-plugin-framework/diag"
-	"github.com/hashicorp/terraform-plugin-framework/internal/logging"
-	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
+
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/internal/fwschema"
+	"github.com/hashicorp/terraform-plugin-framework/internal/logging"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 )
 
 // UpgradeResourceStateRequest is the framework server request for the
@@ -17,8 +21,8 @@ type UpgradeResourceStateRequest struct {
 	// Reference: https://github.com/hashicorp/terraform-plugin-framework/issues/340
 	RawState *tfprotov6.RawState
 
-	ResourceSchema tfsdk.Schema
-	ResourceType   tfsdk.ResourceType
+	ResourceSchema fwschema.Schema
+	Resource       resource.Resource
 	Version        int64
 }
 
@@ -42,6 +46,15 @@ func (s *Server) UpgradeResourceState(ctx context.Context, req *UpgradeResourceS
 		return
 	}
 
+	// Define options to be used when unmarshalling raw state.
+	// IgnoreUndefinedAttributes will silently skip over fields in the JSON
+	// that do not have a matching entry in the schema.
+	unmarshalOpts := tfprotov6.UnmarshalOpts{
+		ValueFromJSONOpts: tftypes.ValueFromJSONOpts{
+			IgnoreUndefinedAttributes: true,
+		},
+	}
+
 	// Terraform CLI can call UpgradeResourceState even if the stored state
 	// version matches the current schema. Presumably this is to account for
 	// the previous terraform-plugin-sdk implementation, which handled some
@@ -52,17 +65,20 @@ func (s *Server) UpgradeResourceState(ctx context.Context, req *UpgradeResourceS
 	// detail for provider developers. Instead, the framework will attempt to
 	// roundtrip the prior RawState to a State matching the current Schema.
 	//
-	// TODO: To prevent provider developers from accidentially implementing
+	// TODO: To prevent provider developers from accidentally implementing
 	// ResourceWithUpgradeState with a version matching the current schema
 	// version which would never get called, the framework can introduce a
 	// unit test helper.
 	// Reference: https://github.com/hashicorp/terraform-plugin-framework/issues/113
-	if req.Version == req.ResourceSchema.Version {
+	//
+	// UnmarshalWithOpts allows optionally ignoring instances in which elements being
+	// do not have a corresponding attribute within the schema.
+	if req.Version == req.ResourceSchema.GetVersion() {
 		logging.FrameworkTrace(ctx, "UpgradeResourceState request version matches current Schema version, using framework defined passthrough implementation")
 
-		resourceSchemaType := req.ResourceSchema.TerraformType(ctx)
+		resourceSchemaType := req.ResourceSchema.Type().TerraformType(ctx)
 
-		rawStateValue, err := req.RawState.Unmarshal(resourceSchemaType)
+		rawStateValue, err := req.RawState.UnmarshalWithOpts(resourceSchemaType, unmarshalOpts)
 
 		if err != nil {
 			resp.Diagnostics.AddError(
@@ -83,18 +99,26 @@ func (s *Server) UpgradeResourceState(ctx context.Context, req *UpgradeResourceS
 		return
 	}
 
-	// Always instantiate new Resource instances.
-	logging.FrameworkDebug(ctx, "Calling provider defined ResourceType NewResource")
-	resource, diags := req.ResourceType.NewResource(ctx, s.Provider)
-	logging.FrameworkDebug(ctx, "Called provider defined ResourceType NewResource")
+	if _, ok := req.Resource.(resource.ResourceWithConfigure); ok {
+		logging.FrameworkTrace(ctx, "Resource implements ResourceWithConfigure")
 
-	resp.Diagnostics.Append(diags...)
+		configureReq := resource.ConfigureRequest{
+			ProviderData: s.ResourceConfigureData,
+		}
+		configureResp := resource.ConfigureResponse{}
 
-	if resp.Diagnostics.HasError() {
-		return
+		logging.FrameworkDebug(ctx, "Calling provider defined Resource Configure")
+		req.Resource.(resource.ResourceWithConfigure).Configure(ctx, configureReq, &configureResp)
+		logging.FrameworkDebug(ctx, "Called provider defined Resource Configure")
+
+		resp.Diagnostics.Append(configureResp.Diagnostics...)
+
+		if resp.Diagnostics.HasError() {
+			return
+		}
 	}
 
-	resourceWithUpgradeState, ok := resource.(tfsdk.ResourceWithUpgradeState)
+	resourceWithUpgradeState, ok := req.Resource.(resource.ResourceWithUpgradeState)
 
 	if !ok {
 		resp.Diagnostics.AddError(
@@ -114,7 +138,7 @@ func (s *Server) UpgradeResourceState(ctx context.Context, req *UpgradeResourceS
 
 	// Panic prevention
 	if resourceStateUpgraders == nil {
-		resourceStateUpgraders = make(map[int64]tfsdk.ResourceStateUpgrader, 0)
+		resourceStateUpgraders = make(map[int64]resource.StateUpgrader, 0)
 	}
 
 	resourceStateUpgrader, ok := resourceStateUpgraders[req.Version]
@@ -129,16 +153,16 @@ func (s *Server) UpgradeResourceState(ctx context.Context, req *UpgradeResourceS
 		return
 	}
 
-	upgradeResourceStateRequest := tfsdk.UpgradeResourceStateRequest{
+	upgradeResourceStateRequest := resource.UpgradeStateRequest{
 		RawState: req.RawState,
 	}
 
 	if resourceStateUpgrader.PriorSchema != nil {
 		logging.FrameworkTrace(ctx, "Initializing populated UpgradeResourceStateRequest state from provider defined prior schema and request RawState")
 
-		priorSchemaType := resourceStateUpgrader.PriorSchema.TerraformType(ctx)
+		priorSchemaType := resourceStateUpgrader.PriorSchema.Type().TerraformType(ctx)
 
-		rawStateValue, err := req.RawState.Unmarshal(priorSchemaType)
+		rawStateValue, err := req.RawState.UnmarshalWithOpts(priorSchemaType, unmarshalOpts)
 
 		if err != nil {
 			resp.Diagnostics.AddError(
@@ -155,7 +179,7 @@ func (s *Server) UpgradeResourceState(ctx context.Context, req *UpgradeResourceS
 		}
 	}
 
-	upgradeResourceStateResponse := tfsdk.UpgradeResourceStateResponse{
+	upgradeResourceStateResponse := resource.UpgradeStateResponse{
 		State: tfsdk.State{
 			Schema: req.ResourceSchema,
 			// Raw is intentionally not set.
@@ -180,7 +204,7 @@ func (s *Server) UpgradeResourceState(ctx context.Context, req *UpgradeResourceS
 	if upgradeResourceStateResponse.DynamicValue != nil {
 		logging.FrameworkTrace(ctx, "UpgradeResourceStateResponse DynamicValue set, overriding State")
 
-		upgradedStateValue, err := upgradeResourceStateResponse.DynamicValue.Unmarshal(req.ResourceSchema.TerraformType(ctx))
+		upgradedStateValue, err := upgradeResourceStateResponse.DynamicValue.Unmarshal(req.ResourceSchema.Type().TerraformType(ctx))
 
 		if err != nil {
 			resp.Diagnostics.AddError(

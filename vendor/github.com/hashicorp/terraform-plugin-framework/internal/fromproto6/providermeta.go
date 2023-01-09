@@ -4,18 +4,19 @@ import (
 	"context"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/internal/fwschema"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
 // ProviderMeta returns the *tfsdk.Config for a *tfprotov6.DynamicValue and
-// *tfsdk.Schema. This data handling is different than Config to simplify
+// fwschema.Schema. This data handling is different than Config to simplify
 // implementors, in that:
 //
-//     - Missing Schema will return nil, rather than an error
-//     - Missing DynamicValue will return nil typed Value, rather than an error
-func ProviderMeta(ctx context.Context, proto6DynamicValue *tfprotov6.DynamicValue, schema *tfsdk.Schema) (*tfsdk.Config, diag.Diagnostics) {
+//   - Missing Schema will return nil, rather than an error
+//   - Missing DynamicValue will return nil typed Value, rather than an error
+func ProviderMeta(ctx context.Context, proto6DynamicValue *tfprotov6.DynamicValue, schema fwschema.Schema) (*tfsdk.Config, diag.Diagnostics) {
 	if schema == nil {
 		return nil, nil
 	}
@@ -23,15 +24,15 @@ func ProviderMeta(ctx context.Context, proto6DynamicValue *tfprotov6.DynamicValu
 	var diags diag.Diagnostics
 
 	fw := &tfsdk.Config{
-		Raw:    tftypes.NewValue(schema.TerraformType(ctx), nil),
-		Schema: *schema,
+		Raw:    tftypes.NewValue(schema.Type().TerraformType(ctx), nil),
+		Schema: schema,
 	}
 
 	if proto6DynamicValue == nil {
 		return fw, nil
 	}
 
-	proto6Value, err := proto6DynamicValue.Unmarshal(schema.TerraformType(ctx))
+	proto6Value, err := proto6DynamicValue.Unmarshal(schema.Type().TerraformType(ctx))
 
 	if err != nil {
 		diags.AddError(

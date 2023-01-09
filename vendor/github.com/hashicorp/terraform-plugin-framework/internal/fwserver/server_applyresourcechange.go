@@ -4,7 +4,10 @@ import (
 	"context"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/internal/fwschema"
 	"github.com/hashicorp/terraform-plugin-framework/internal/logging"
+	"github.com/hashicorp/terraform-plugin-framework/internal/privatestate"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 )
 
@@ -12,12 +15,12 @@ import (
 // ApplyResourceChange RPC.
 type ApplyResourceChangeRequest struct {
 	Config         *tfsdk.Config
-	PlannedPrivate []byte
+	PlannedPrivate *privatestate.Data
 	PlannedState   *tfsdk.Plan
 	PriorState     *tfsdk.State
 	ProviderMeta   *tfsdk.Config
-	ResourceSchema tfsdk.Schema
-	ResourceType   tfsdk.ResourceType
+	ResourceSchema fwschema.Schema
+	Resource       resource.Resource
 }
 
 // ApplyResourceChangeResponse is the framework server response for the
@@ -25,7 +28,7 @@ type ApplyResourceChangeRequest struct {
 type ApplyResourceChangeResponse struct {
 	Diagnostics diag.Diagnostics
 	NewState    *tfsdk.State
-	Private     []byte
+	Private     *privatestate.Data
 }
 
 // ApplyResourceChange implements the framework server ApplyResourceChange RPC.
@@ -44,7 +47,7 @@ func (s *Server) ApplyResourceChange(ctx context.Context, req *ApplyResourceChan
 			PlannedState:   req.PlannedState,
 			ProviderMeta:   req.ProviderMeta,
 			ResourceSchema: req.ResourceSchema,
-			ResourceType:   req.ResourceType,
+			Resource:       req.Resource,
 		}
 		createResp := &CreateResourceResponse{}
 
@@ -66,7 +69,7 @@ func (s *Server) ApplyResourceChange(ctx context.Context, req *ApplyResourceChan
 			PriorState:     req.PriorState,
 			ProviderMeta:   req.ProviderMeta,
 			ResourceSchema: req.ResourceSchema,
-			ResourceType:   req.ResourceType,
+			Resource:       req.Resource,
 		}
 		deleteResp := &DeleteResourceResponse{}
 
@@ -89,7 +92,7 @@ func (s *Server) ApplyResourceChange(ctx context.Context, req *ApplyResourceChan
 		PriorState:     req.PriorState,
 		ProviderMeta:   req.ProviderMeta,
 		ResourceSchema: req.ResourceSchema,
-		ResourceType:   req.ResourceType,
+		Resource:       req.Resource,
 	}
 	updateResp := &UpdateResourceResponse{}
 

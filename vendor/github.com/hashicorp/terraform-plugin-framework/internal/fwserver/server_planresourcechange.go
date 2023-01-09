@@ -6,34 +6,36 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/hashicorp/terraform-plugin-framework/diag"
-	"github.com/hashicorp/terraform-plugin-framework/internal/logging"
-	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
+
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/internal/fwschema"
+	"github.com/hashicorp/terraform-plugin-framework/internal/logging"
+	"github.com/hashicorp/terraform-plugin-framework/internal/privatestate"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 )
 
 // PlanResourceChangeRequest is the framework server request for the
 // PlanResourceChange RPC.
 type PlanResourceChangeRequest struct {
 	Config           *tfsdk.Config
-	PriorPrivate     []byte
+	PriorPrivate     *privatestate.Data
 	PriorState       *tfsdk.State
 	ProposedNewState *tfsdk.Plan
 	ProviderMeta     *tfsdk.Config
-	ResourceSchema   tfsdk.Schema
-	ResourceType     tfsdk.ResourceType
+	ResourceSchema   fwschema.Schema
+	Resource         resource.Resource
 }
 
 // PlanResourceChangeResponse is the framework server response for the
 // PlanResourceChange RPC.
 type PlanResourceChangeResponse struct {
-	Diagnostics    diag.Diagnostics
-	PlannedPrivate []byte
-	PlannedState   *tfsdk.State
-
-	// TODO: Replace with framework defined type
-	// Reference: https://github.com/hashicorp/terraform-plugin-framework/issues/81
-	RequiresReplace []*tftypes.AttributePath
+	Diagnostics     diag.Diagnostics
+	PlannedPrivate  *privatestate.Data
+	PlannedState    *tfsdk.State
+	RequiresReplace path.Paths
 }
 
 // PlanResourceChange implements the framework server PlanResourceChange RPC.
@@ -42,18 +44,26 @@ func (s *Server) PlanResourceChange(ctx context.Context, req *PlanResourceChange
 		return
 	}
 
-	// Always instantiate new Resource instances.
-	logging.FrameworkDebug(ctx, "Calling provider defined ResourceType NewResource")
-	resource, diags := req.ResourceType.NewResource(ctx, s.Provider)
-	logging.FrameworkDebug(ctx, "Called provider defined ResourceType NewResource")
+	if _, ok := req.Resource.(resource.ResourceWithConfigure); ok {
+		logging.FrameworkTrace(ctx, "Resource implements ResourceWithConfigure")
 
-	resp.Diagnostics.Append(diags...)
+		configureReq := resource.ConfigureRequest{
+			ProviderData: s.ResourceConfigureData,
+		}
+		configureResp := resource.ConfigureResponse{}
 
-	if resp.Diagnostics.HasError() {
-		return
+		logging.FrameworkDebug(ctx, "Calling provider defined Resource Configure")
+		req.Resource.(resource.ResourceWithConfigure).Configure(ctx, configureReq, &configureResp)
+		logging.FrameworkDebug(ctx, "Called provider defined Resource Configure")
+
+		resp.Diagnostics.Append(configureResp.Diagnostics...)
+
+		if resp.Diagnostics.HasError() {
+			return
+		}
 	}
 
-	nullTfValue := tftypes.NewValue(req.ResourceSchema.TerraformType(ctx), nil)
+	nullTfValue := tftypes.NewValue(req.ResourceSchema.Type().TerraformType(ctx), nil)
 
 	// Prevent potential panics by ensuring incoming Config/Plan/State are null
 	// instead of nil.
@@ -75,6 +85,20 @@ func (s *Server) PlanResourceChange(ctx context.Context, req *PlanResourceChange
 		req.PriorState = &tfsdk.State{
 			Raw:    nullTfValue,
 			Schema: req.ResourceSchema,
+		}
+	}
+
+	// Ensure that resp.PlannedPrivate is never nil.
+	resp.PlannedPrivate = privatestate.EmptyData(ctx)
+
+	if req.PriorPrivate != nil {
+		// Overwrite resp.PlannedPrivate with req.PriorPrivate providing
+		// it is not nil.
+		resp.PlannedPrivate = req.PriorPrivate
+
+		// Ensure that resp.PlannedPrivate.Provider is never nil.
+		if resp.PlannedPrivate.Provider == nil {
+			resp.PlannedPrivate.Provider = privatestate.EmptyProviderData(ctx)
 		}
 	}
 
@@ -158,9 +182,10 @@ func (s *Server) PlanResourceChange(ctx context.Context, req *PlanResourceChange
 	// represents a resource being deleted and there's no point.
 	if !resp.PlannedState.Raw.IsNull() {
 		modifySchemaPlanReq := ModifySchemaPlanRequest{
-			Config: *req.Config,
-			Plan:   stateToPlan(*resp.PlannedState),
-			State:  *req.PriorState,
+			Config:  *req.Config,
+			Plan:    stateToPlan(*resp.PlannedState),
+			State:   *req.PriorState,
+			Private: resp.PlannedPrivate.Provider,
 		}
 
 		if req.ProviderMeta != nil {
@@ -170,6 +195,7 @@ func (s *Server) PlanResourceChange(ctx context.Context, req *PlanResourceChange
 		modifySchemaPlanResp := ModifySchemaPlanResponse{
 			Diagnostics: resp.Diagnostics,
 			Plan:        modifySchemaPlanReq.Plan,
+			Private:     modifySchemaPlanReq.Private,
 		}
 
 		SchemaModifyPlan(ctx, req.ResourceSchema, modifySchemaPlanReq, &modifySchemaPlanResp)
@@ -177,6 +203,7 @@ func (s *Server) PlanResourceChange(ctx context.Context, req *PlanResourceChange
 		resp.Diagnostics = modifySchemaPlanResp.Diagnostics
 		resp.PlannedState = planToState(modifySchemaPlanResp.Plan)
 		resp.RequiresReplace = append(resp.RequiresReplace, modifySchemaPlanResp.RequiresReplace...)
+		resp.PlannedPrivate.Provider = modifySchemaPlanResp.Private
 
 		if resp.Diagnostics.HasError() {
 			return
@@ -191,39 +218,52 @@ func (s *Server) PlanResourceChange(ctx context.Context, req *PlanResourceChange
 	// delete resources, e.g. to inform practitioners that the resource
 	// _can't_ be deleted in the API and will just be removed from
 	// Terraform's state
-	if resource, ok := resource.(tfsdk.ResourceWithModifyPlan); ok {
+	if resourceWithModifyPlan, ok := req.Resource.(resource.ResourceWithModifyPlan); ok {
 		logging.FrameworkTrace(ctx, "Resource implements ResourceWithModifyPlan")
 
-		modifyPlanReq := tfsdk.ModifyResourcePlanRequest{
-			Config: *req.Config,
-			Plan:   stateToPlan(*resp.PlannedState),
-			State:  *req.PriorState,
+		modifyPlanReq := resource.ModifyPlanRequest{
+			Config:  *req.Config,
+			Plan:    stateToPlan(*resp.PlannedState),
+			State:   *req.PriorState,
+			Private: resp.PlannedPrivate.Provider,
 		}
 
 		if req.ProviderMeta != nil {
 			modifyPlanReq.ProviderMeta = *req.ProviderMeta
 		}
 
-		modifyPlanResp := tfsdk.ModifyResourcePlanResponse{
+		modifyPlanResp := resource.ModifyPlanResponse{
 			Diagnostics:     resp.Diagnostics,
 			Plan:            modifyPlanReq.Plan,
-			RequiresReplace: []*tftypes.AttributePath{},
+			RequiresReplace: path.Paths{},
+			Private:         modifyPlanReq.Private,
 		}
 
 		logging.FrameworkDebug(ctx, "Calling provider defined Resource ModifyPlan")
-		resource.ModifyPlan(ctx, modifyPlanReq, &modifyPlanResp)
+		resourceWithModifyPlan.ModifyPlan(ctx, modifyPlanReq, &modifyPlanResp)
 		logging.FrameworkDebug(ctx, "Called provider defined Resource ModifyPlan")
 
 		resp.Diagnostics = modifyPlanResp.Diagnostics
 		resp.PlannedState = planToState(modifyPlanResp.Plan)
 		resp.RequiresReplace = append(resp.RequiresReplace, modifyPlanResp.RequiresReplace...)
+		resp.PlannedPrivate.Provider = modifyPlanResp.Private
 	}
 
 	// Ensure deterministic RequiresReplace by sorting and deduplicating
 	resp.RequiresReplace = NormaliseRequiresReplace(ctx, resp.RequiresReplace)
+
+	// If this was a destroy resource plan, ensure the plan remained null.
+	if req.ProposedNewState.Raw.IsNull() && !resp.PlannedState.Raw.IsNull() {
+		resp.Diagnostics.AddError(
+			"Unexpected Planned Resource State on Destroy",
+			"The Terraform Provider unexpectedly returned resource state data when the resource was planned for destruction. "+
+				"This is always an issue in the Terraform Provider and should be reported to the provider developers.\n\n"+
+				"Ensure all resource plan modifiers do not attempt to change resource plan data from being a null value if the request plan is a null value.",
+		)
+	}
 }
 
-func MarkComputedNilsAsUnknown(ctx context.Context, config tftypes.Value, resourceSchema tfsdk.Schema) func(*tftypes.AttributePath, tftypes.Value) (tftypes.Value, error) {
+func MarkComputedNilsAsUnknown(ctx context.Context, config tftypes.Value, resourceSchema fwschema.Schema) func(*tftypes.AttributePath, tftypes.Value) (tftypes.Value, error) {
 	return func(path *tftypes.AttributePath, val tftypes.Value) (tftypes.Value, error) {
 		ctx = logging.FrameworkWithAttributePath(ctx, path.String())
 
@@ -242,12 +282,18 @@ func MarkComputedNilsAsUnknown(ctx context.Context, config tftypes.Value, resour
 			return val, nil
 		}
 
-		attribute, err := resourceSchema.AttributeAtPath(path)
+		attribute, err := resourceSchema.AttributeAtTerraformPath(ctx, path)
 
 		if err != nil {
-			if errors.Is(err, tfsdk.ErrPathInsideAtomicAttribute) {
+			if errors.Is(err, fwschema.ErrPathInsideAtomicAttribute) {
 				// ignore attributes/elements inside schema.Attributes, they have no schema of their own
 				logging.FrameworkTrace(ctx, "attribute is a non-schema attribute, not marking unknown")
+				return val, nil
+			}
+
+			if errors.Is(err, fwschema.ErrPathIsBlock) {
+				// ignore blocks, they do not have a computed field
+				logging.FrameworkTrace(ctx, "attribute is a block, not marking unknown")
 				return val, nil
 			}
 
@@ -255,7 +301,7 @@ func MarkComputedNilsAsUnknown(ctx context.Context, config tftypes.Value, resour
 
 			return tftypes.Value{}, fmt.Errorf("couldn't find attribute in resource schema: %w", err)
 		}
-		if !attribute.Computed {
+		if !attribute.IsComputed() {
 			logging.FrameworkTrace(ctx, "attribute is not computed in schema, not marking unknown")
 
 			return val, nil
@@ -270,7 +316,7 @@ func MarkComputedNilsAsUnknown(ctx context.Context, config tftypes.Value, resour
 // NormaliseRequiresReplace sorts and deduplicates the slice of AttributePaths
 // used in the RequiresReplace response field.
 // Sorting is lexical based on the string representation of each AttributePath.
-func NormaliseRequiresReplace(ctx context.Context, rs []*tftypes.AttributePath) []*tftypes.AttributePath {
+func NormaliseRequiresReplace(ctx context.Context, rs path.Paths) path.Paths {
 	if len(rs) < 2 {
 		return rs
 	}
@@ -279,7 +325,7 @@ func NormaliseRequiresReplace(ctx context.Context, rs []*tftypes.AttributePath) 
 		return rs[i].String() < rs[j].String()
 	})
 
-	ret := make([]*tftypes.AttributePath, len(rs))
+	ret := make(path.Paths, len(rs))
 	ret[0] = rs[0]
 
 	// deduplicate

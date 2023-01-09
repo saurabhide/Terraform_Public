@@ -3,8 +3,9 @@ package toproto5
 import (
 	"context"
 
-	"github.com/hashicorp/terraform-plugin-framework/internal/fwserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov5"
+
+	"github.com/hashicorp/terraform-plugin-framework/internal/fwserver"
 )
 
 // ApplyResourceChangeResponse returns the *tfprotov5.ApplyResourceChangeResponse
@@ -15,14 +16,18 @@ func ApplyResourceChangeResponse(ctx context.Context, fw *fwserver.ApplyResource
 	}
 
 	proto5 := &tfprotov5.ApplyResourceChangeResponse{
-		Diagnostics: Diagnostics(fw.Diagnostics),
-		Private:     fw.Private,
+		Diagnostics: Diagnostics(ctx, fw.Diagnostics),
 	}
 
 	newState, diags := State(ctx, fw.NewState)
 
-	proto5.Diagnostics = append(proto5.Diagnostics, Diagnostics(diags)...)
+	proto5.Diagnostics = append(proto5.Diagnostics, Diagnostics(ctx, diags)...)
 	proto5.NewState = newState
+
+	newPrivate, diags := fw.Private.Bytes(ctx)
+
+	proto5.Diagnostics = append(proto5.Diagnostics, Diagnostics(ctx, diags)...)
+	proto5.Private = newPrivate
 
 	return proto5
 }

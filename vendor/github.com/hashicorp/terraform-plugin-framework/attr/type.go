@@ -3,13 +3,15 @@ package attr
 import (
 	"context"
 
-	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
 // Type defines an interface for describing a kind of attribute. Types are
 // collections of constraints and behaviors such that they can be reused on
 // multiple attributes easily.
+//
+// Refer also to the xattr package, which contains additional extensions for
+// Type, such as validation.
 type Type interface {
 	// TerraformType returns the tftypes.Type that should be used to
 	// represent this type. This constrains what user input will be
@@ -22,6 +24,12 @@ type Type interface {
 	// meant to convert the tftypes.Value into a more convenient Go type
 	// for the provider to consume the data with.
 	ValueFromTerraform(context.Context, tftypes.Value) (Value, error)
+
+	// ValueType should return the attr.Value type returned by
+	// ValueFromTerraform. The returned attr.Value can be any null, unknown,
+	// or known value for the type, as this is intended for type detection
+	// and improving error diagnostics.
+	ValueType(context.Context) Value
 
 	// Equal must return true if the Type is considered semantically equal
 	// to the Type passed as an argument.
@@ -72,18 +80,6 @@ type TypeWithElementTypes interface {
 
 	// ElementTypes returns the type's elements' types.
 	ElementTypes() []Type
-}
-
-// TypeWithValidate extends the Type interface to include a Validate method,
-// used to bundle consistent validation logic with the Type.
-type TypeWithValidate interface {
-	Type
-
-	// Validate returns any warnings or errors about the value that is
-	// being used to populate the Type. It is generally used to check the
-	// data format and ensure that it complies with the requirements of the
-	// Type.
-	Validate(context.Context, tftypes.Value, *tftypes.AttributePath) diag.Diagnostics
 }
 
 // TypeWithPlaintextDescription extends the Type interface to include a

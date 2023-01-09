@@ -3,20 +3,24 @@ package fwserver
 import (
 	"context"
 
-	"github.com/hashicorp/terraform-plugin-framework/diag"
-	"github.com/hashicorp/terraform-plugin-framework/internal/logging"
-	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
+
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/internal/fwschema"
+	"github.com/hashicorp/terraform-plugin-framework/internal/logging"
+	"github.com/hashicorp/terraform-plugin-framework/internal/privatestate"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 )
 
 // DeleteResourceRequest is the framework server request for a delete request
 // with the ApplyResourceChange RPC.
 type DeleteResourceRequest struct {
-	PlannedPrivate []byte
+	PlannedPrivate *privatestate.Data
 	PriorState     *tfsdk.State
 	ProviderMeta   *tfsdk.Config
-	ResourceSchema tfsdk.Schema
-	ResourceType   tfsdk.ResourceType
+	ResourceSchema fwschema.Schema
+	Resource       resource.Resource
 }
 
 // DeleteResourceResponse is the framework server response for a delete request
@@ -24,7 +28,7 @@ type DeleteResourceRequest struct {
 type DeleteResourceResponse struct {
 	Diagnostics diag.Diagnostics
 	NewState    *tfsdk.State
-	Private     []byte
+	Private     *privatestate.Data
 }
 
 // DeleteResource implements the framework server delete request logic for the
@@ -34,27 +38,35 @@ func (s *Server) DeleteResource(ctx context.Context, req *DeleteResourceRequest,
 		return
 	}
 
-	// Always instantiate new Resource instances.
-	logging.FrameworkDebug(ctx, "Calling provider defined ResourceType NewResource")
-	resource, diags := req.ResourceType.NewResource(ctx, s.Provider)
-	logging.FrameworkDebug(ctx, "Called provider defined ResourceType NewResource")
+	if _, ok := req.Resource.(resource.ResourceWithConfigure); ok {
+		logging.FrameworkTrace(ctx, "Resource implements ResourceWithConfigure")
 
-	resp.Diagnostics.Append(diags...)
+		configureReq := resource.ConfigureRequest{
+			ProviderData: s.ResourceConfigureData,
+		}
+		configureResp := resource.ConfigureResponse{}
 
-	if resp.Diagnostics.HasError() {
-		return
+		logging.FrameworkDebug(ctx, "Calling provider defined Resource Configure")
+		req.Resource.(resource.ResourceWithConfigure).Configure(ctx, configureReq, &configureResp)
+		logging.FrameworkDebug(ctx, "Called provider defined Resource Configure")
+
+		resp.Diagnostics.Append(configureResp.Diagnostics...)
+
+		if resp.Diagnostics.HasError() {
+			return
+		}
 	}
 
-	deleteReq := tfsdk.DeleteResourceRequest{
+	deleteReq := resource.DeleteRequest{
 		State: tfsdk.State{
 			Schema: req.ResourceSchema,
-			Raw:    tftypes.NewValue(req.ResourceSchema.TerraformType(ctx), nil),
+			Raw:    tftypes.NewValue(req.ResourceSchema.Type().TerraformType(ctx), nil),
 		},
 	}
-	deleteResp := tfsdk.DeleteResourceResponse{
+	deleteResp := resource.DeleteResponse{
 		State: tfsdk.State{
 			Schema: req.ResourceSchema,
-			Raw:    tftypes.NewValue(req.ResourceSchema.TerraformType(ctx), nil),
+			Raw:    tftypes.NewValue(req.ResourceSchema.Type().TerraformType(ctx), nil),
 		},
 	}
 
@@ -67,8 +79,12 @@ func (s *Server) DeleteResource(ctx context.Context, req *DeleteResourceRequest,
 		deleteReq.ProviderMeta = *req.ProviderMeta
 	}
 
+	if req.PlannedPrivate != nil {
+		deleteReq.Private = req.PlannedPrivate.Provider
+	}
+
 	logging.FrameworkDebug(ctx, "Calling provider defined Resource Delete")
-	resource.Delete(ctx, deleteReq, &deleteResp)
+	req.Resource.Delete(ctx, deleteReq, &deleteResp)
 	logging.FrameworkDebug(ctx, "Called provider defined Resource Delete")
 
 	if !deleteResp.Diagnostics.HasError() {

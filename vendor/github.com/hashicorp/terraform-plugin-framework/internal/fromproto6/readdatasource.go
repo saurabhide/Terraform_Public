@@ -3,15 +3,16 @@ package fromproto6
 import (
 	"context"
 
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/internal/fwschema"
 	"github.com/hashicorp/terraform-plugin-framework/internal/fwserver"
-	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 )
 
 // ReadDataSourceRequest returns the *fwserver.ReadDataSourceRequest
 // equivalent of a *tfprotov6.ReadDataSourceRequest.
-func ReadDataSourceRequest(ctx context.Context, proto6 *tfprotov6.ReadDataSourceRequest, dataSourceType tfsdk.DataSourceType, dataSourceSchema *tfsdk.Schema, providerMetaSchema *tfsdk.Schema) (*fwserver.ReadDataSourceRequest, diag.Diagnostics) {
+func ReadDataSourceRequest(ctx context.Context, proto6 *tfprotov6.ReadDataSourceRequest, dataSource datasource.DataSource, dataSourceSchema fwschema.Schema, providerMetaSchema fwschema.Schema) (*fwserver.ReadDataSourceRequest, diag.Diagnostics) {
 	if proto6 == nil {
 		return nil, nil
 	}
@@ -33,8 +34,8 @@ func ReadDataSourceRequest(ctx context.Context, proto6 *tfprotov6.ReadDataSource
 	}
 
 	fw := &fwserver.ReadDataSourceRequest{
-		DataSourceSchema: *dataSourceSchema,
-		DataSourceType:   dataSourceType,
+		DataSourceSchema: dataSourceSchema,
+		DataSource:       dataSource,
 	}
 
 	config, configDiags := Config(ctx, proto6.Config, dataSourceSchema)
